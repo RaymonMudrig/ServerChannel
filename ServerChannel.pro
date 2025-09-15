@@ -1,4 +1,4 @@
-QT = core network
+QT = core network sql
 
 CONFIG += c++17 cmdline
 
@@ -18,4 +18,5 @@ else: unix:!android: target.path = /opt/$${TARGET}/bin
 
 HEADERS += \
     channel.h \
+    singleaccess.h \
     tcpserver.h

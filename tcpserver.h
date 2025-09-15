@@ -31,7 +31,7 @@ class ConnectionHandler : public QObject {
 public:
     explicit ConnectionHandler(QTcpSocket *socket, QObject *parent = nullptr);
 
-    void setClientId(int id) { client_id = id; }
+    void setClientId(qint64 id) { client_id = id; }
 
 private slots:
     void onReadyRead();
@@ -40,7 +40,7 @@ private slots:
 private:
     QTcpSocket *socket;
 
-    int client_id;
+    qint64 client_id;
 };
 
 //--------------------------------------------------------------------------------
@@ -50,14 +50,19 @@ class ConnectionManager : public QObject {
 public:
     static ConnectionManager &instance();
 
-    void registerClient(int id, QTcpSocket *socket);
-    void unregisterClient(int id);
-    void sendToClient(int id, const QByteArray &data);
+    void registerConnection(qint64 id, QTcpSocket *socket);
+    void unregisterConnection(qint64 id);
+    void sendToConnection(qint64 id, const QByteArray &data);
     void broadcast(const QByteArray &data);
 
 private:
-    QMap<int, QPointer<QTcpSocket>> clients;
+
+    // Maps socket to connectionID
+    QMap<qint64, QPointer<QTcpSocket>> connections;
     QMutex mutex;
+
+    // Maps socket to UserNID
+    QMap<int, QPointer<QTcpSocket>> connectionByUserNIDs;
 
     ConnectionManager() = default;
 };

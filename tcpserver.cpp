@@ -2,6 +2,7 @@
 #include <QTcpSocket>
 #include <QMetaObject>
 #include <QThreadPool>
+#include <QDateTime>
 
 //--------------------------------------------------------------------------------
 
@@ -49,20 +50,39 @@ ConnectionManager &ConnectionManager::instance() {
     return instance;
 }
 
-void ConnectionManager::registerClient(int id, QTcpSocket *socket) {
+void ConnectionManager::registerConnection(qint64 id, QTcpSocket *socket) {
     QMutexLocker locker(&mutex);
-    clients[id] = socket;
+    connections[id] = socket;
+
+    // Auto-unregister when the socket disconnects or is destroyed
+    connect(socket, &QTcpSocket::disconnected, this, [this, id]{
+        unregisterConnection(id);
+    });
+    connect(socket, &QObject::destroyed, this, [this, id]{
+        unregisterConnection(id);
+    });
 }
 
-void ConnectionManager::unregisterClient(int id) {
+void ConnectionManager::unregisterConnection(qint64 id) {
     QMutexLocker locker(&mutex);
-    clients.remove(id);
+
+    if(connections.contains(id))
+    {
+        auto conn = connections[id];
+        auto strUserNID = conn->objectName();
+        if(strUserNID.length() > 0)
+        {
+            auto userNID = strUserNID.toInt();
+            connectionByUserNIDs.remove(userNID);
+        }
+        connections.remove(id);
+    }
 }
 
-void ConnectionManager::sendToClient(int id, const QByteArray &data) {
+void ConnectionManager::sendToConnection(qint64 id, const QByteArray &data) {
     QMutexLocker locker(&mutex);
-    if (clients.contains(id) && clients[id]) {
-        QMetaObject::invokeMethod(clients[id], [sock = clients[id], data]() {
+    if (connections.contains(id) && connections[id]) {
+        QMetaObject::invokeMethod(connections[id], [sock = connections[id], data]() {
             if (sock && sock->state() == QTcpSocket::ConnectedState)
                 sock->write(data);
         });
@@ -71,7 +91,8 @@ void ConnectionManager::sendToClient(int id, const QByteArray &data) {
 
 void ConnectionManager::broadcast(const QByteArray &data) {
     QMutexLocker locker(&mutex);
-    for (auto sock : clients.values()) {
+    auto allConns = connections.values();
+    for (auto &sock : allConns) {
         if (sock) {
             QMetaObject::invokeMethod(sock, [sock, data]() {
                 if (sock && sock->state() == QTcpSocket::ConnectedState)
@@ -86,15 +107,17 @@ void ConnectionManager::broadcast(const QByteArray &data) {
 TcpServer::TcpServer(QObject *parent)
     : QTcpServer(parent) {}
 
-static int nextId = 1;
+static qint64 nextId = QDateTime::currentMSecsSinceEpoch();
 
 void TcpServer::incomingConnection(qintptr descriptor) {
     auto *socket = new QTcpSocket(this);
     if (socket->setSocketDescriptor(descriptor)) {
-        int clientId = nextId++;
-        ConnectionManager::instance().registerClient(clientId, socket);
+        qint64 clientId = nextId++;
+        ConnectionManager::instance().registerConnection(clientId, socket);
+
         auto *handler = new ConnectionHandler(socket, this);
         handler->setClientId(clientId); // optional
+
         qDebug() << "Client" << clientId << "connected from" << socket->peerAddress();
     } else {
         delete socket;
